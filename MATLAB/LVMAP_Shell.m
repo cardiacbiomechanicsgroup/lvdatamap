@@ -129,27 +129,27 @@ axis equal tight,xlabel('X'),ylabel('Y'),zlabel('Z')
 title('Data in Cardiac Coordinates')
 
 for jz = 1:numel(SAxis)-1
-    SAxis{jz}.REndo(:,1:3) = (SAxis{jz}.Endo(:,1:3) - origin)*Transform';
-    SAxis{jz}.REpi(:,1:3)  = (SAxis{jz}.Epi(:,1:3) - origin)*Transform';
-    SAxis{jz}.RScar(:,1:3) = (SAxis{jz}.Scar(:,1:3) - origin)*Transform';
+    SAxis{jz}.REndo(:,1:3) = (SAxis{jz}.Endo(:,1:3) - repmat(origin,size(SAxis{jz}.Endo(:,1:3),1),1))*Transform';
+    SAxis{jz}.REpi(:,1:3)  = (SAxis{jz}.Epi(:,1:3) - repmat(origin,size(SAxis{jz}.Epi(:,1:3),1),1))*Transform';
+    SAxis{jz}.RScar(:,1:3) = (SAxis{jz}.Scar(:,1:3) - repmat(origin,size(SAxis{jz}.Scar(:,1:3),1),1))*Transform';
     
     plot3(SAxis{jz}.REndo(:,1),SAxis{jz}.REndo(:,2),SAxis{jz}.REndo(:,3),'r-')
     plot3(SAxis{jz}.REpi(:,1),SAxis{jz}.REpi(:,2),SAxis{jz}.REpi(:,3),'k-')
     plot3(SAxis{jz}.RScar(:,1),SAxis{jz}.RScar(:,2),SAxis{jz}.RScar(:,3),'m.','MarkerSize',20)
 end
-SAxis{jz+1}.Rpts(:,1:3)  = (SAxis{jz+1}.pts(:,1:3) - origin)*Transform';
+SAxis{jz+1}.Rpts(:,1:3)  = (SAxis{jz+1}.pts(:,1:3) - repmat(origin,size(SAxis{jz+1}.pts(:,1:3),1),1))*Transform';
 plot3(SAxis{jz+1}.Rpts(:,1),SAxis{jz+1}.Rpts(:,2),SAxis{jz+1}.Rpts(:,3),'k.','MarkerSize',20)
 
 for jz = 1:numel(LAxis)-1
-    LAxis{jz}.REndo(:,1:3) = (LAxis{jz}.Endo(:,1:3) - origin)*Transform';
-    LAxis{jz}.REpi(:,1:3)  = (LAxis{jz}.Epi(:,1:3) - origin)*Transform';
-    LAxis{jz}.RScar(:,1:3) = (LAxis{jz}.Scar(:,1:3) - origin)*Transform';
+    LAxis{jz}.REndo(:,1:3) = (LAxis{jz}.Endo(:,1:3) - repmat(origin,size(LAxis{jz}.Endo(:,1:3),1),1))*Transform';
+    LAxis{jz}.REpi(:,1:3)  = (LAxis{jz}.Epi(:,1:3) - repmat(origin,size(LAxis{jz}.Epi(:,1:3),1),1))*Transform';
+    LAxis{jz}.RScar(:,1:3) = (LAxis{jz}.Scar(:,1:3) - repmat(origin,size(LAxis{jz}.Scar(:,1:3),1),1))*Transform';
     
     plot3(LAxis{jz}.REndo(:,1),LAxis{jz}.REndo(:,2),LAxis{jz}.REndo(:,3),'r-')
     plot3(LAxis{jz}.REpi(:,1),LAxis{jz}.REpi(:,2),LAxis{jz}.REpi(:,3),'k-')
     plot3(LAxis{jz}.RScar(:,1),LAxis{jz}.RScar(:,2),LAxis{jz}.RScar(:,3),'m.','MarkerSize',20)
 end
-LAxis{jz+1}.Rpts(:,1:3)  = (LAxis{jz+1}.pts(:,1:3) - origin)*Transform';
+LAxis{jz+1}.Rpts(:,1:3)  = (LAxis{jz+1}.pts(:,1:3) - repmat(origin,size(LAxis{jz+1}.pts(:,1:3),1),1))*Transform';
 plot3(LAxis{jz+1}.Rpts(:,1),LAxis{jz+1}.Rpts(:,2),LAxis{jz+1}.Rpts(:,3),'k.-','MarkerSize',20)
 
 %% CONVERT Cardiac Data to Prolate coordinates

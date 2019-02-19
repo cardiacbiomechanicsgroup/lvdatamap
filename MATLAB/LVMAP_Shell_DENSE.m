@@ -73,9 +73,9 @@ Si = SAxyz.pnpt(3,:);
     Transform = [e1; e2; e3];
     
 % Rotate Data
-SAxyz.REpi = (SAxyz.epi(:,1:3) - origin)*Transform';
-SAxyz.Rpts = (SAxyz.pnpt(:,1:3) - origin)*Transform';
-LAxyz.Rpts = (LAxyz.pnpt(:,1:3) - origin)*Transform';
+SAxyz.REpi = (SAxyz.epi(:,1:3) - repmat(origin,size(SAxyz.epi(:,1:3),1),1))*Transform';
+SAxyz.Rpts = (SAxyz.pnpt(:,1:3) - repmat(origin,size(SAxyz.pnpt(:,1:3),1),1))*Transform';
+LAxyz.Rpts = (LAxyz.pnpt(:,1:3) - repmat(origin,size(LAxyz.pnpt(:,1:3),1),1))*Transform';
 
     % % Visualize Geometry
     % FE_RenderPatchMesh(LVGEOM.nXYZ,LVGEOM.eHEX,'facecolor',[1 1 1]);
