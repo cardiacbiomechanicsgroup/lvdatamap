@@ -714,17 +714,20 @@ def interpShortScar(num_bins, epi_prol, endo_prol, pts_prol, epi_rot, endo_rot, 
 	theta_centers = [(theta_bins[i] + theta_bins[i+1])/2 for i in range(len(theta_bins) - 1)]
 	scar_width_combined = [None]*len(epi_prol)
 	theta_centers_combined = [None]*len(epi_prol)
+	scar_pts_combined = [None]*len(epi_prol)
 	for slice_num in range(len(epi_prol)):
-		wall_scar, interp_theta_centers = __wallScarCalculations(num_bins, epi_prol[slice_num], endo_prol[slice_num], pts_prol[slice_num], epi_rot[slice_num], endo_rot[slice_num], pts_rot[slice_num], theta_bins, theta_centers)
+		wall_scar, interp_theta_centers, scar_pts = __wallScarCalculations(num_bins, epi_prol[slice_num], endo_prol[slice_num], pts_prol[slice_num], epi_rot[slice_num], endo_rot[slice_num], pts_rot[slice_num], theta_bins, theta_centers)
 		theta_centers_combined[slice_num] = np.column_stack((interp_theta_centers, theta_centers))
 		scar_width_combined[slice_num] = wall_scar
-	return([theta_centers_combined, scar_width_combined])
-	
+		scar_pts_combined[slice_num] = scar_pts
+	return([theta_centers_combined, scar_width_combined, scar_pts_combined])
+
 def interpLongScar(num_bins, epi_prol, endo_prol, pts_prol, epi_rot, endo_rot, pts_rot):
 	mu_bins = np.linspace(0, 120*math.pi/180, num_bins+1)
 	mu_centers = [(mu_bins[i] + mu_bins[i+1])/2 for i in range(len(mu_bins) - 1)]
 	wall_scar_combined = [None]*len(epi_prol)
 	interp_surface_combined = [None]*len(epi_prol)
+	scar_pts_combined = [None]*len(epi_prol)
 	for slice_num in range(len(epi_prol)):
 		mid_point = np.mean(epi_prol[slice_num][:, 2])
 		edges = [mid_point-math.pi, mid_point, mid_point+math.pi]
@@ -734,6 +737,7 @@ def interpLongScar(num_bins, epi_prol, endo_prol, pts_prol, epi_rot, endo_rot, p
 
 		wall_scar_slice = np.array([])
 		interp_surface_slice = np.array([])
+		scar_pts_slice = np.array([])
 		for bin_val in range(len(edges)-1):
 			endo_prol_bin = endo_prol[slice_num][np.where([endo_edge_val == bin_val for endo_edge_val in endo_edge_index])[0], :]
 			epi_prol_bin = epi_prol[slice_num][np.where([epi_edge_val == bin_val for epi_edge_val in epi_edge_index])[0], :]
@@ -742,13 +746,15 @@ def interpLongScar(num_bins, epi_prol, endo_prol, pts_prol, epi_rot, endo_rot, p
 			epi_rot_bin = epi_rot[slice_num][np.where([epi_edge_val == bin_val for epi_edge_val in epi_edge_index])[0], :]
 			pts_rot_bin = pts_rot[slice_num][np.where([pts_edge_val == bin_val for pts_edge_val in pts_edge_index])[0], :]
 			
-			wall_scar, interp_mu_centers = __wallScarCalculations(num_bins, epi_prol_bin, endo_prol_bin, pts_prol_bin, epi_rot_bin, endo_rot_bin, pts_rot_bin, mu_bins, mu_centers, long_axis=True)
+			wall_scar, interp_mu_centers, scar_pts = __wallScarCalculations(num_bins, epi_prol_bin, endo_prol_bin, pts_prol_bin, epi_rot_bin, endo_rot_bin, pts_rot_bin, mu_bins, mu_centers, long_axis=True)
 			epi_surf_stack = np.column_stack((interp_mu_centers[:, 0], mu_centers, interp_mu_centers[:, 1]))
 			interp_surface_slice = np.append(interp_surface_slice, epi_surf_stack, axis=0) if interp_surface_slice.size else epi_surf_stack
 			wall_scar_slice = np.append(wall_scar_slice, wall_scar, axis=0) if wall_scar_slice.size else wall_scar
+			scar_pts_slice = np.append(scar_pts_slice, scar_pts, axis=0) if scar_pts_slice.size else scar_pts
 		wall_scar_combined[slice_num] = wall_scar_slice
 		interp_surface_combined[slice_num] = interp_surface_slice
-	return([interp_surface_combined, wall_scar_combined])
+		scar_pts_combined[slice_num] = scar_pts_slice
+	return([interp_surface_combined, wall_scar_combined, scar_pts_combined])
 	
 def _generateTransformMatrix(setstruct):
 	# Pull values from the setstruct dict
@@ -781,28 +787,47 @@ def _generateTransformMatrix(setstruct):
 	return(m_arr)
 	
 def __wallScarCalculations(num_bins, epi_prol, endo_prol, pts_prol, epi_rot, endo_rot, pts_rot, angle_bins, angle_centers, long_axis=False):
-	interp_function = sp.interpolate.interp1d(epi_prol[:, 1], epi_prol[:, [0, 2]], axis=0, kind='linear', fill_value='extrapolate') if long_axis else sp.interpolate.interp1d(epi_prol[:, 2], epi_prol[:, :2], axis=0, kind='linear', bounds_error=False)
-	# , fill_value='extrapolate'
+	# Set up binning interpolation
+	interp_function = sp.interpolate.interp1d(epi_prol[:, 1], epi_prol[:, [0, 2]], axis=0, kind='linear', fill_value='extrapolate') if long_axis else sp.interpolate.interp1d(epi_prol[:, 2], epi_prol[:, :2], axis=0, kind='linear', bounds_error=False, fill_value='extrapolate')
 	interp_centers = interp_function(angle_centers)
-	
+
+	# Identify up indices for each bin
 	_, epi_bin_index = mathhelper.getBinValues(epi_prol[:, 1], angle_bins) if long_axis else mathhelper.getBinValues(epi_prol[:, 2], angle_bins)
 	_, endo_bin_index = mathhelper.getBinValues(endo_prol[:, 1], angle_bins) if long_axis else mathhelper.getBinValues(endo_prol[:, 2], angle_bins)
 	_, pts_bin_index = mathhelper.getBinValues(pts_prol[:, 1], angle_bins) if long_axis else mathhelper.getBinValues(pts_prol[:, 2], angle_bins)
 	
+	# Calculate wall thickness
 	wall_scar = np.empty((num_bins, 3))
 	wall_scar[:] = np.nan
 	for bin_num in range(num_bins):
 		endo_indices = np.where(np.array(endo_bin_index) == bin_num)[0]
 		epi_indices = np.where(np.array(epi_bin_index) == bin_num)[0]
-		scar_indices = np.where(np.array(pts_bin_index) == bin_num)[0]
 		endo_point = np.nanmean(endo_rot[endo_indices, :], axis=0) if endo_indices.size else np.full([1, 3], np.nan)
 		epi_point = np.nanmean(epi_rot[epi_indices, :], axis=0) if epi_indices.size else np.full([1, 3], np.nan)
 		wall_scar[bin_num, 0] = math.sqrt(np.sum(np.square(epi_point - endo_point)))
+	
+	# Interpolate the wall thickness in bins without points
+	wall_interp_inds = np.array(np.where(~np.isnan(wall_scar[:, 0]))[0])
+	wall_nan_inds = np.array(np.where(np.isnan(wall_scar[:, 0]))[0])
+	angle_centers_interp = [angle_centers[wall_interp_ind] for wall_interp_ind in wall_interp_inds]
+	wall_thickness_interp = [wall_scar[wall_interp_ind, 0] for wall_interp_ind in wall_interp_inds]
+	angle_centers_nans = [angle_centers[wall_nan_ind] for wall_nan_ind in wall_nan_inds]
+	wall_thickness_interp_eq = sp.interpolate.interp1d(angle_centers_interp, wall_thickness_interp, fill_value='extrapolate')
+	interp_thickness = wall_thickness_interp_eq(angle_centers_nans)
+	wall_scar[wall_nan_inds, 0] = interp_thickness
+	
+	scar_pts = np.empty((num_bins, 6))
+	scar_pts[:] = np.nan
+	# Calculate scar penetration depth
+	for bin_num in range(num_bins):
+		scar_indices = np.where(np.array(pts_bin_index) == bin_num)[0]
 		if len(scar_indices) > 2:
 			scar_points = np.append(pts_rot[scar_indices, :], pts_prol[scar_indices, :], axis=1)
 			scar_pts_ordered = scar_points[np.argsort(scar_points[:, 3]), :]
 			endo_scar_pt = scar_pts_ordered[0, 0:3]
 			epi_scar_pt = scar_pts_ordered[-1, 0:3]
+			scar_pts[bin_num, 0:3] = endo_scar_pt
+			scar_pts[bin_num, 3:6] = epi_scar_pt
 			wall_scar[bin_num, 1] = math.sqrt(np.sum(np.square(epi_scar_pt - endo_scar_pt)))/wall_scar[bin_num, 0]
 			wall_scar[bin_num, 2] = math.sqrt(np.sum(np.square(epi_point - epi_scar_pt)))/wall_scar[bin_num, 0]
-	return(wall_scar, interp_centers)
+	return(wall_scar, interp_centers, scar_pts)

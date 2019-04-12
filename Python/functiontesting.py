@@ -38,4 +38,4 @@ mri_model.alignScar()
 depth_smooth_list = [0.05*i for i in range(101)]
 scar_elem_list = [None]*len(depth_smooth_list)
 for depth_i, depth_smooth in enumerate(depth_smooth_list):
-	scar_elem_list[depth_i] = mri_mesh.interpScarData(mri_model.interp_data, depth_smooth=depth_smooth)
+	scar_elem_list[depth_i] = mri_mesh.interpScarData(mri_model.interp_scar, depth_smooth=depth_smooth)

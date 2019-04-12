@@ -16,6 +16,7 @@ from cardiachelpers import stackhelper
 from cardiachelpers import mathhelper
 from cardiachelpers import meshhelper
 from cardiachelpers import importhelper
+from cardiachelpers import displayhelper
 import matplotlib.pyplot as plt
 import warnings
 
@@ -147,15 +148,12 @@ class Mesh():
 			endo_node_matrix (array): An array of the endocardial nodes defining the mesh.
 			epi_node_matrix (array): An array of the epicardial nodes defining the mesh.
 		"""
-		
 		# Set up variables
 		data_endo, self.focus, self.transform, self.origin = stackhelper.rotateDataCoordinates(all_data_endo, apex_pt, basal_pt, septal_pts)
 		data_epi = stackhelper.rotateDataCoordinates(all_data_epi, apex_pt, basal_pt, septal_pts)[0]
-		
 		# Fit using a bicubic interpolation.
 		self.endo_node_matrix, _ = meshhelper.fitBicubicData(data_endo, self.focus, mesh_density=mesh_type)
 		self.epi_node_matrix, _ = meshhelper.fitBicubicData(data_epi, self.focus, mesh_density=mesh_type)
-		
 		return([self.endo_node_matrix, self.epi_node_matrix])
 	
 	def feMeshRender(self):

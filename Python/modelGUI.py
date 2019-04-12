@@ -4,13 +4,13 @@ Created on Fri Feb 9 12:48:42 2017
 
 @author: cdw2be
 """
-
+import warnings
+warnings.simplefilter('ignore', UserWarning)
 import tkinter as tk
 from tkinter import filedialog
 from tkinter import ttk
 from tkinter import font
 from tkinter import messagebox
-import warnings
 import mrimodel
 import confocalmodel
 import mesh
@@ -18,6 +18,7 @@ import numpy as np
 from cardiachelpers import displayhelper
 import math
 import winreg, glob, os
+warnings.simplefilter('default', UserWarning)
 
 class modelGUI(tk.Frame):
 	"""Generates a GUI to control the Python-based cardiac modeling toolbox.
@@ -192,7 +193,10 @@ class modelGUI(tk.Frame):
 		self.postview_exe_entry.insert(0, self.postview_exe)
 		#	Buttons to create and open files
 		self.feb_file_button = ttk.Button(text='Generate FEBio File', state='disabled', command= lambda: self.genFebFile())
-		self.postview_open_button = ttk.Button(text='Launch PostView', state='disabled', command= lambda: self.openPostview())
+		if self.postview_exe == '':
+			self.postview_open_button = ttk.Button(text='Launch PostView', state='disabled', command= lambda: self.openPostview())
+		else:
+			self.postview_open_button = ttk.Button(text='Launch PostView', state='enabled', command= lambda: self.openPostview())
 		self.feb_file_button.grid(row=13, column=3)
 		self.postview_open_button.grid(row=13, column=4)
 		#	Create "Browse" button
@@ -247,8 +251,9 @@ class modelGUI(tk.Frame):
 				file_name += '.feb'
 		else:
 			file_name = filedialog.askopenfilename(title='Select File')
-		entry_box.delete(0, 'end')
-		entry_box.insert(0, file_name)
+		if not file_name == '':
+			entry_box.delete(0, 'end')
+			entry_box.insert(0, file_name)
 		return(file_name)
 		
 	def createMRIModel(self, sa_filename, la_filename, lge_filename, la_lge_filenames, dense_filenames):
@@ -283,6 +288,8 @@ class modelGUI(tk.Frame):
 			self.mri_model.importLGE()
 			if not(la_lge_filenames_replaced == ''):
 				self.mri_model.importScarLA()
+			self.mri_model.convertDataProlate()
+			interp_scar = self.mri_model.alignScar()
 		else:
 			# Only occurs if scar is removed from MRI model on later instantiation
 			self.scar_cbutton.configure(state='disabled')
@@ -292,14 +299,16 @@ class modelGUI(tk.Frame):
 		if self.mri_model.dense:
 			self.dense_cbutton.configure(state='normal')
 			self.mri_model.importDense()
-			self.mri_model.alignDense(cine_timepoint=0)
-			self.dense_timepoint_cbox.configure(values=list(range(len(self.mri_model.dense_aligned_displacement))), state='readonly')
-			self.dense_timepoint_cbox.current(0)
 		else:
 			# Only occurs if DENSE is removed from MRI model on later instantiation
 			self.dense_cbutton.configure(state='disabled')
 			self.dense_timepoint_cbox.configure(values=[], state='disabled')
 			self.dense_fe_button.configure(state='disabled')
+		self.mri_model.convertDataProlate()
+		if self.mri_model.dense:
+			self.mri_model.alignDense(cine_timepoint=0)
+			self.dense_timepoint_cbox.configure(values=list(range(len(self.mri_model.circumferential_strain))), state='readonly')
+			self.dense_timepoint_cbox.current(0)
 		
 		# Update GUI elements
 		self.cine_timepoint_cbox.configure(values=list(range(len(self.mri_model.cine_endo))), state='readonly')
@@ -332,7 +341,9 @@ class modelGUI(tk.Frame):
 			self.mri_mesh = mesh.Mesh(num_rings, elem_per_ring, elem_in_wall)
 		
 			# Fit mesh to MRI model data
-			self.mri_mesh.fitContours(self.mri_model.cine_endo[time_point][:, :3], self.mri_model.cine_epi[time_point][:, :3], self.mri_model.cine_apex_pt, self.mri_model.cine_basal_pt, self.mri_model.cine_septal_pts, mesh_type_cbox.get())
+			#temp_view = displayhelper.visPlot3d(self.mri_model.cine_endo_rotate[time_point][:, :3])
+			#displayhelper.visPlot3d(self.mri_model.cine_epi_rotate[time_point][:, :3], view=temp_view)
+			self.mri_mesh.fitContours(self.mri_model.cine_endo_rotate[time_point][:, :3], self.mri_model.cine_epi_rotate[time_point][:, :3], self.mri_model.cine_apex_pt, self.mri_model.cine_basal_pt, self.mri_model.cine_septal_pts, mesh_type_cbox.get())
 			self.mri_mesh.feMeshRender()
 			self.mri_mesh.nodeNum(self.mri_mesh.meshCart[0], self.mri_mesh.meshCart[1], self.mri_mesh.meshCart[2])
 			self.mri_mesh.getElemConMatrix()
@@ -352,23 +363,27 @@ class modelGUI(tk.Frame):
 				self.dense_fe_button.configure(state='disabled')
 		elif premade_mesh_file:
 			self.mri_mesh = mesh.Mesh(num_rings, elem_per_ring, elem_in_wall)
-			self.mri_mesh.importPremadeMesh(premade_mesh_file.get())
+			import_success = self.mri_mesh.importPremadeMesh(premade_mesh_file.get())
 			# Update GUI elements as needed
-			self.plot_mri_button.configure(state='normal')
-			self.plot_mesh_button.configure(state='normal')
-			self.feb_file_button.configure(state='normal')
-			self.nodes_cbutton.configure(state='normal')
-			self.meshButton.configure(state='disabled', text='Using Premade Mesh')
-			if self.mri_model:
-				self.mri_mesh.assignInsertionPts(self.mri_model.cine_apex_pt, self.mri_model.cine_basal_pt, self.mri_model.cine_septal_pts)
-				if self.mri_model.scar:
-					self.scar_fe_button.configure(state='normal')
-				else:
-					self.scar_fe_button.configure(state='disabled')
-				if self.mri_model.dense:
-					self.dense_fe_button.configure(state='normal')
-				else:
-					self.dense_fe_button.configure(state='disabled')
+			if import_success:
+				self.plot_mri_button.configure(state='normal')
+				self.plot_mesh_button.configure(state='normal')
+				self.feb_file_button.configure(state='normal')
+				self.nodes_cbutton.configure(state='normal')
+				self.meshButton.configure(state='disabled', text='Using Premade Mesh')
+				if self.mri_model:
+					self.mri_mesh.assignInsertionPts(self.mri_model.cine_apex_pt, self.mri_model.cine_basal_pt, self.mri_model.cine_septal_pts)
+					if self.mri_model.scar:
+						self.scar_fe_button.configure(state='normal')
+					else:
+						self.scar_fe_button.configure(state='disabled')
+					if self.mri_model.dense:
+						self.dense_fe_button.configure(state='normal')
+					else:
+						self.dense_fe_button.configure(state='disabled')
+			else:
+				self.mri_mesh = None
+				messagebox.showwarning('No Mesh File', 'Mesh file not found.')
 	
 	def createConfocalModel(self, confocal_dir_entry):
 		"""Set up a new confocalModel object of stitched images.
@@ -410,24 +425,25 @@ class modelGUI(tk.Frame):
 		# Pull timepoint from timepoint selection combobox
 		time_point = int(self.cine_timepoint_cbox.get())
 		# Plot overall cine segmentation data
-		#print(self.mri_model.cine_endo[time_point].shape)
 		mri_axes = displayhelper.segmentRender(self.mri_model.cine_endo_rotate[time_point], self.mri_model.cine_epi_rotate[time_point], self.mri_model.cine_apex_pt, self.mri_model.cine_basal_pt, self.mri_model.cine_septal_pts, self.mri_mesh.origin, self.mri_mesh.transform)
 		# If desired, plot scar data
 		if self.scar_plot_bool.get() and self.mri_model.scar:
-			mri_axes = displayhelper.displayScarTrace(self.mri_model.aligned_scar[time_point], self.mri_mesh.origin, self.mri_mesh.transform, ax=mri_axes)
+			mri_axes = displayhelper.displayScarTrace(self.mri_model.interp_scar_trace, self.mri_mesh.origin, self.mri_mesh.transform, ax=mri_axes)
+			if hasattr(self.mri_model, 'interp_scar_la_trace'):
+				mri_axes = displayhelper.displayScarTrace(self.mri_model.interp_scar_la_trace, self.mri_mesh.origin, self.mri_mesh.transform, ax=mri_axes)
 		# If desired, plot DENSE data
 		if self.dense_plot_bool.get() and self.mri_model.dense:
-			mri_axes = displayhelper.displayDensePts(self.mri_model.dense_aligned_pts, self.mri_model.dense_slices, self.mri_mesh.origin, self.mri_mesh.transform, self.mri_model.dense_aligned_displacement, dense_plot_quiver=1, timepoint=int(self.dense_timepoint_cbox.get()), ax=mri_axes)
+			mri_axes = displayhelper.displayDensePts(self.mri_model.dense_aligned_pts, self.mri_model.dense_slice_shifted, self.mri_mesh.origin, self.mri_mesh.transform, self.mri_model.dense_aligned_displacement, dense_plot_quiver=1, timepoint=int(self.dense_timepoint_cbox.get()), ax=mri_axes)
 	
 	def plotMRIMesh(self):
 		"""Plots the mesh data as a surface plot, with display options
 		"""
 		# Plot surface contours of endocardium and epicardium
 		mesh_axes = displayhelper.surfaceRender(self.mri_mesh.endo_node_matrix, self.mri_mesh.focus)
-		mesh_axes = displayhelper.surfaceRender(self.mri_mesh.epi_node_matrix, self.mri_mesh.focus, mesh_axes)
+		mesh_axes = displayhelper.surfaceRender(self.mri_mesh.epi_node_matrix, self.mri_mesh.focus, ax=mesh_axes)
 		# Display node positions, if selected
 		if self.nodes_plot_bool.get():
-			mesh_axes = displayhelper.nodeRender(self.mri_mesh.nodes, mesh_axes)
+			mesh_axes = displayhelper.nodeRender(self.mri_mesh.nodes, ax=mesh_axes)
 		# Display scar locations, if available and desired
 		if self.scar_plot_bool.get() and self.mri_mesh.nodes_in_scar.size:
 			mesh_axes = displayhelper.nodeRender(self.mri_mesh.nodes[self.mri_mesh.nodes_in_scar, :], ax=mesh_axes)
@@ -442,7 +458,7 @@ class modelGUI(tk.Frame):
 		self.mri_model.convertDataProlate(self.mri_mesh.focus)
 		self.mri_mesh.rotateNodesProlate()
 		self.mri_model.alignScar()
-		self.mri_mesh.interpScarData(self.mri_model.interp_data)
+		self.mri_mesh.interpScarData(self.mri_model.interp_scar, trans_smooth=1, depth_smooth=0.5)
 		if not self.scar_assign:
 			self.scar_assign = True
 		if self.dense_assign and self.scar_assign:

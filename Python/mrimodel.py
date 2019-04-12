@@ -19,6 +19,7 @@ from mpl_toolkits.mplot3d import Axes3D
 from cardiachelpers import importhelper
 from cardiachelpers import stackhelper
 from cardiachelpers import mathhelper
+from cardiachelpers import displayhelper
 # Call this to set appropriate printing to view all data from arrays
 np.set_printoptions(threshold=np.inf)
 np.core.arrayprint._line_width = 160
@@ -67,6 +68,7 @@ class MRIModel():
 		else:
 			self.sa_scar_file = None
 			self.scar = False
+			self.la_scar = False
 		
 		if dense_file:
 			self.dense_file = dense_file
@@ -144,7 +146,7 @@ class MRIModel():
 				epi_time_by_slice[j] = np.column_stack((epi_time_by_slice[j], epi_slice_column))
 			endo[i] = endo_time_by_slice
 			epi[i] = epi_time_by_slice
-
+		
 		cine_endo_rotate = [None]*len(endo)
 		cine_epi_rotate = [None]*len(epi)
 		
@@ -157,9 +159,10 @@ class MRIModel():
 				epi_rotate_timepts[slice_num], _, self.transform_basis, _ = stackhelper.rotateDataCoordinates(epi[time_pt][slice_num][:, :3], apex_pt, base_pt, center_septal_pt)
 				endo_rotate_timepts[slice_num] = np.column_stack((endo_rotate_timepts[slice_num], endo[time_pt][slice_num][:, 3]))
 				epi_rotate_timepts[slice_num] = np.column_stack((epi_rotate_timepts[slice_num], epi[time_pt][slice_num][:, 3]))
+			#displayhelper.plot3d(np.vstack(tuple(endo_rotate_timepts)), type='scatter')
 			cine_endo_rotate[time_pt] = endo_rotate_timepts
 			cine_epi_rotate[time_pt] = epi_rotate_timepts
-		self.rv_insertion_pts_rot = stackhelper.rotateDataCoordinates(self.rv_insertion_pts, apex_pt, base_pt, center_septal_pt)[0]
+		self.rv_insertion_pts_rot, self.focus, _, _ = stackhelper.rotateDataCoordinates(self.rv_insertion_pts, apex_pt, base_pt, center_septal_pt)
 		self.abs_pts_rot = stackhelper.rotateDataCoordinates(self.apex_base_pts, apex_pt, base_pt, center_septal_pt)[0]
 
 		cine_endo_arrs = [None]*len(endo)
@@ -176,7 +179,7 @@ class MRIModel():
 			cine_endo_rotate_arrs[time_ind] = np.vstack(endo_rotate_timept)
 			cine_epi_arrs[time_ind] = np.vstack(epi_timept)
 			cine_epi_rotate_arrs[time_ind] = np.vstack(epi_rotate_timept)
-
+		
 		# Store class fields based on calculated values:
 		self.cine_endo_rotate = cine_endo_rotate_arrs
 		self.cine_epi_rotate = cine_epi_rotate_arrs
@@ -293,7 +296,6 @@ class MRIModel():
 	def importDense(self):
 		"""Imports DENSE MR data from the file established at initialization.
 		"""
-		
 		dense_endo = [None]*len(self.dense_file)
 		dense_epi = [None]*len(self.dense_file)
 		dense_pts = [None]*len(self.dense_file)
@@ -301,7 +303,7 @@ class MRIModel():
 		dense_displacement = False
 		radial_strain = False
 		circumferential_strain = False
-		
+
 		for i in range(len(self.dense_file)):
 			dense_file = self.dense_file[i]
 			# Extract Contour Information from DENSE Mat file
@@ -311,9 +313,15 @@ class MRIModel():
 			epi_dense = np.array(dense_data['ROIInfo']['RestingContour'][0])
 			endo_dense = np.array(dense_data['ROIInfo']['RestingContour'][1])
 			
+			endo_slice_diff = [abs(endo_slice_i - slice_location) for endo_slice_i in self.endo_slices]
+			endo_slice_index = np.argmin(endo_slice_diff) + 1
+			endo_slice_match = np.where(self.cine_endo_rotate[0][:, 3] == endo_slice_index)[0]
+			endo_slice = self.cine_endo_rotate[0][endo_slice_match, 0]
+			slice_z = np.mean(endo_slice)
+			
 			# Append slice location to DENSE contour data
-			endo_slice_col = np.array([slice_location] * endo_dense.shape[0]).reshape([endo_dense.shape[0], 1])
-			epi_slice_col = np.array([slice_location] * epi_dense.shape[0]).reshape([epi_dense.shape[0], 1])
+			endo_slice_col = np.array([slice_z] * endo_dense.shape[0]).reshape([endo_dense.shape[0], 1])
+			epi_slice_col = np.array([slice_z] * epi_dense.shape[0]).reshape([epi_dense.shape[0], 1])
 			endo_dense = np.append(endo_dense, endo_slice_col, axis=1)
 			epi_dense = np.append(epi_dense, epi_slice_col, axis=1)
 			
@@ -329,15 +337,15 @@ class MRIModel():
 			# Shift the DENSE endo and epi contours by the epicardial mean
 			endo_shift = endo_interp[:, :2] - np.mean(epi_interp[:, :2], axis=0)
 			epi_shift = epi_interp[:, :2] - np.mean(epi_interp[:, :2], axis=0)
-			endo_shift_theta, endo_shift_rho = mathhelper.cart2pol(endo_shift[:, 0], endo_shift[:, 1])
-			epi_shift_theta, epi_shift_rho = mathhelper.cart2pol(epi_shift[:, 0], epi_shift[:, 1])
+			endo_shift = np.column_stack((endo_shift, endo_interp[:, 2]))
+			epi_shift = np.column_stack((epi_shift, epi_interp[:, 2]))
 			dense_endo[i] = endo_shift
 			dense_epi[i] = epi_shift
 			
 			# Shift the entire pixel array by the same epicardial mean
 			dense_x = dense_data['DisplacementInfo']['X'] - np.mean(epi_interp[:, 0])
 			dense_y = dense_data['DisplacementInfo']['Y'] - np.mean(epi_interp[:, 1])
-			dense_z = [slice_location]*len(dense_x)
+			dense_z = [slice_z]*len(dense_x)
 			
 			dense_pts[i] = np.column_stack((dense_x, dense_y, dense_z))
 			
@@ -384,38 +392,49 @@ class MRIModel():
 		"""Scar alignment designed to include long-axis scar data.
 		"""
 		# Interpolate the scar contours circumferentially using 50 evenly-spaced angle bins
-		self.interp_epi_surf, self.wall_scar = stackhelper.interpShortScar(50, self.lge_epi_prol, self.lge_endo_prol, self.lge_pts_prol, self.lge_epi_rotate, self.lge_endo_rotate, self.lge_pts_rotate)
+		self.interp_epi_surf, self.wall_scar, scar_pts_combined = stackhelper.interpShortScar(50, self.lge_epi_prol, self.lge_endo_prol, self.lge_pts_prol, self.lge_epi_rotate, self.lge_endo_rotate, self.lge_pts_rotate)
 		# Remove nan values from the list of scar transmuralities
 		for slice_num in range(len(self.wall_scar)):
 			temp_slice = self.wall_scar[slice_num]
 			temp_slice[np.isnan(temp_slice[:, 1]), 1] = 0
 			self.wall_scar[slice_num] = temp_slice
 		# Interpolate scar contours based on the long-axis LGE contours
-		self.interp_epi_la_surf, self.wall_scar_la = stackhelper.interpLongScar(20, self.lge_la_epi_prol, self.lge_la_endo_prol, self.lge_la_pts_prol, self.lge_la_epi_rotate, self.lge_la_endo_rotate, self.lge_la_pts_rotate)
-		# Remove nan values from the list of long-axis LGE transmuralities
-		for slice_num in range(len(self.wall_scar_la)):
-			temp_slice = self.wall_scar_la[slice_num]
-			temp_slice[np.isnan(temp_slice[:, 1]), 1] = 0
-			self.wall_scar_la[slice_num] = temp_slice
+		if hasattr(self, 'lge_la_epi_prol'):
+			self.interp_epi_la_surf, self.wall_scar_la, scar_pts_combined_la = stackhelper.interpLongScar(20, self.lge_la_epi_prol, self.lge_la_endo_prol, self.lge_la_pts_prol, self.lge_la_epi_rotate, self.lge_la_endo_rotate, self.lge_la_pts_rotate)
+			# Remove nan values from the list of long-axis LGE transmuralities
+			for slice_num in range(len(self.wall_scar_la)):
+				temp_slice = self.wall_scar_la[slice_num]
+				temp_slice[np.isnan(temp_slice[:, 1]), 1] = 0
+				self.wall_scar_la[slice_num] = temp_slice
 		temp_data_arr = np.empty([0, 6])
 		# Stack the slices into single arrays
 		for slice_num in range(len(self.wall_scar)):
 			temp_slice_arr = np.column_stack((self.interp_epi_surf[slice_num], self.wall_scar[slice_num]))
 			temp_data_arr = np.vstack((temp_data_arr, temp_slice_arr))
-		for slice_num in range(len(self.wall_scar_la)):
-			temp_slice_arr = np.column_stack((self.interp_epi_la_surf[slice_num], self.wall_scar_la[slice_num]))
-			temp_data_arr = np.vstack((temp_data_arr, temp_slice_arr))
+		if hasattr(self, 'lge_la_epi_prol'):
+			for slice_num in range(len(self.wall_scar_la)):
+				temp_slice_arr = np.column_stack((self.interp_epi_la_surf[slice_num], self.wall_scar_la[slice_num]))
+				temp_data_arr = np.vstack((temp_data_arr, temp_slice_arr))
 		nan_rows = ~np.isnan(temp_data_arr[:, 1])
 		interp_data = temp_data_arr[nan_rows, :]
+		epi_mu = interp_data[:, 0]
+		wall_thickness = interp_data[:, 3]
 		interp_data = interp_data[:, [2, 1, 4, 5]]
 		interp_data_inc = np.column_stack((interp_data[:, 0]+2*math.pi, interp_data[:, 1:]))
 		interp_data_dec = np.column_stack((interp_data[:, 0]-2*math.pi, interp_data[:, 1:]))
 		interp_data_complete = np.vstack((interp_data, interp_data_inc, interp_data_dec))
-		self.interp_data = interp_data_complete
+		self.interp_scar = interp_data_complete
+		self.interp_scar_trace = self.__convertInterpScar(scar_pts_combined)
+		if hasattr(self, 'lge_la_epi_prol'):
+			self.interp_scar_la_trace = self.__convertInterpScar(scar_pts_combined_la)
+		return(self.interp_scar)
 	
-	def convertDataProlate(self, focus):
+	def convertDataProlate(self, focus=False):
 		"""Convert all data from a rotated axis into prolate spheroid coordinates for further alignment.
 		"""
+		if not focus:
+			focus = self.focus
+		
 		# Convert cine endocardial and epicardial traces
 		cine_endo_prol = [None]*len(self.cine_endo_rotate)
 		cine_epi_prol = [None]*len(self.cine_epi_rotate)
@@ -430,40 +449,58 @@ class MRIModel():
 		self.cine_epi_prol = cine_epi_prol
 
 		# Convert Short-Axis LGE endocardial, epicardial, and scar-point traces
-		lge_endo_prol = [None]*len(self.lge_endo_rotate)
-		lge_epi_prol = [None]*len(self.lge_epi_rotate)
-		lge_pts_prol = [None]*len(self.lge_pts_rotate)
+		if self.scar:
+			lge_endo_prol = [None]*len(self.lge_endo_rotate)
+			lge_epi_prol = [None]*len(self.lge_epi_rotate)
+			lge_pts_prol = [None]*len(self.lge_pts_rotate)
 		
-		for i in range(len(self.lge_endo_rotate)):
-			lge_endo_prol_list = mathhelper.cart2prolate(self.lge_endo_rotate[i][:, 0], self.lge_endo_rotate[i][:, 1], self.lge_endo_rotate[i][:, 2], focus)
-			lge_epi_prol_list = mathhelper.cart2prolate(self.lge_epi_rotate[i][:, 0], self.lge_epi_rotate[i][:, 1], self.lge_epi_rotate[i][:, 2], focus)
-			lge_pts_prol_list = mathhelper.cart2prolate(self.lge_pts_rotate[i][:, 0], self.lge_pts_rotate[i][:, 1], self.lge_pts_rotate[i][:, 2], focus)
+			for i in range(len(self.lge_endo_rotate)):
+				lge_endo_prol_list = mathhelper.cart2prolate(self.lge_endo_rotate[i][:, 0], self.lge_endo_rotate[i][:, 1], self.lge_endo_rotate[i][:, 2], focus)
+				lge_epi_prol_list = mathhelper.cart2prolate(self.lge_epi_rotate[i][:, 0], self.lge_epi_rotate[i][:, 1], self.lge_epi_rotate[i][:, 2], focus)
+				lge_pts_prol_list = mathhelper.cart2prolate(self.lge_pts_rotate[i][:, 0], self.lge_pts_rotate[i][:, 1], self.lge_pts_rotate[i][:, 2], focus)
+				
+				lge_endo_prol[i] = np.column_stack(tuple(lge_endo_prol_list))
+				lge_epi_prol[i] = np.column_stack(tuple(lge_epi_prol_list))
+				lge_pts_prol[i] = np.column_stack(tuple(lge_pts_prol_list))
 			
-			lge_endo_prol[i] = np.column_stack(tuple(lge_endo_prol_list))
-			lge_epi_prol[i] = np.column_stack(tuple(lge_epi_prol_list))
-			lge_pts_prol[i] = np.column_stack(tuple(lge_pts_prol_list))
-			
-		self.lge_endo_prol = lge_endo_prol
-		self.lge_epi_prol = lge_epi_prol
-		self.lge_pts_prol = lge_pts_prol
+			self.lge_endo_prol = lge_endo_prol
+			self.lge_epi_prol = lge_epi_prol
+			self.lge_pts_prol = lge_pts_prol
 		
 		# Convert long-axis LGE endocardial, epicardial, and scar-point traces
-		lge_la_endo_prol = [None]*len(self.lge_la_endo_rotate)
-		lge_la_epi_prol = [None]*len(self.lge_la_epi_rotate)
-		lge_la_pts_prol = [None]*len(self.lge_la_pts_rotate)
-		
-		for i in range(len(self.lge_la_endo_rotate)):
-			lge_la_endo_prol_list = mathhelper.cart2prolate(self.lge_la_endo_rotate[i][:, 0], self.lge_la_endo_rotate[i][:, 1], self.lge_la_endo_rotate[i][:, 2], focus)
-			lge_la_epi_prol_list = mathhelper.cart2prolate(self.lge_la_epi_rotate[i][:, 0], self.lge_la_epi_rotate[i][:, 1], self.lge_la_epi_rotate[i][:, 2], focus)
-			lge_la_pts_prol_list = mathhelper.cart2prolate(self.lge_la_pts_rotate[i][:, 0], self.lge_la_pts_rotate[i][:, 1], self.lge_la_pts_rotate[i][:, 2], focus)
+		if self.la_scar:
+			lge_la_endo_prol = [None]*len(self.lge_la_endo_rotate)
+			lge_la_epi_prol = [None]*len(self.lge_la_epi_rotate)
+			lge_la_pts_prol = [None]*len(self.lge_la_pts_rotate)
 			
-			lge_la_endo_prol[i] = np.column_stack(tuple(lge_la_endo_prol_list))
-			lge_la_epi_prol[i] = np.column_stack(tuple(lge_la_epi_prol_list))
-			lge_la_pts_prol[i] = np.column_stack(tuple(lge_la_pts_prol_list))
+			for i in range(len(self.lge_la_endo_rotate)):
+				lge_la_endo_prol_list = mathhelper.cart2prolate(self.lge_la_endo_rotate[i][:, 0], self.lge_la_endo_rotate[i][:, 1], self.lge_la_endo_rotate[i][:, 2], focus)
+				lge_la_epi_prol_list = mathhelper.cart2prolate(self.lge_la_epi_rotate[i][:, 0], self.lge_la_epi_rotate[i][:, 1], self.lge_la_epi_rotate[i][:, 2], focus)
+				lge_la_pts_prol_list = mathhelper.cart2prolate(self.lge_la_pts_rotate[i][:, 0], self.lge_la_pts_rotate[i][:, 1], self.lge_la_pts_rotate[i][:, 2], focus)
+				
+				lge_la_endo_prol[i] = np.column_stack(tuple(lge_la_endo_prol_list))
+				lge_la_epi_prol[i] = np.column_stack(tuple(lge_la_epi_prol_list))
+				lge_la_pts_prol[i] = np.column_stack(tuple(lge_la_pts_prol_list))
+				
+			self.lge_la_endo_prol = lge_la_endo_prol
+			self.lge_la_epi_prol = lge_la_epi_prol
+			self.lge_la_pts_prol = lge_la_pts_prol
+	
+		if self.dense:
+			self.dense_endo_prol = [None]*len(self.dense_endo)
+			self.dense_epi_prol = [None]*len(self.dense_epi)
+			self.dense_pts_prol = [None]*len(self.dense_pts)
 			
-		self.lge_la_endo_prol = lge_la_endo_prol
-		self.lge_la_epi_prol = lge_la_epi_prol
-		self.lge_la_pts_prol = lge_la_pts_prol
+			for i in range(len(self.dense_endo)):
+				dense_slice = np.zeros((self.dense_endo[i].shape[0], 1))
+				dense_slice.fill(self.dense_slices[i])
+				dense_endo_prol_list = mathhelper.cart2prolate(self.dense_endo[i][:, 2], self.dense_endo[i][:, 1], self.dense_endo[i][:, 0], focus)
+				dense_epi_prol_list = mathhelper.cart2prolate(self.dense_epi[i][:, 2], self.dense_epi[i][:, 1], self.dense_epi[i][:, 0], focus)
+				dense_pts_prol_list = mathhelper.cart2prolate(self.dense_pts[i][:, 2], self.dense_pts[i][:, 1], self.dense_pts[i][:, 0], focus)
+				
+				self.dense_endo_prol[i] = np.column_stack(tuple(dense_endo_prol_list))
+				self.dense_epi_prol[i] = np.column_stack(tuple(dense_epi_prol_list))
+				self.dense_pts_prol[i] = np.column_stack(tuple(dense_pts_prol_list))
 	
 	def alignScarCine(self, timepoint=0):
 		"""A method of aligning scar and cine data
@@ -606,10 +643,11 @@ class MRIModel():
 		self.aligned_scar[timepoint] = full_scar_contour
 		return(full_scar_contour)
 
-	def alignDense(self, cine_timepoint=0):
+	def oldAlignDense(self, cine_timepoint=0):
 		"""Align DENSE data to a cine slice by selected timepoint.
 		"""
 		# Get data at specified timepoints.
+		self.newAlignDense()
 		try:
 			cine_endo_timepoint = self.cine_endo[cine_timepoint]
 			cine_epi_timepoint = self.cine_epi[cine_timepoint]
@@ -617,18 +655,23 @@ class MRIModel():
 			print("Invalid timepoint selected. Try again.")
 			return(False)
 
+		cine_endo_rot_timepoint = self.cine_endo_rotate[cine_timepoint]
+		cine_epi_rot_timepoint = self.cine_epi_rotate[cine_timepoint]
 		slice_array = [self.endo_slices[i - 1] for i in cine_endo_timepoint[:, 3].astype(int)]
 		dense_aligned_pts = [False]*len(self.dense_pts)
 		scaled_strain = [False]*len(self.dense_displacement)
+		dense_slice_adjusted_z = [None]*len(self.dense_pts)
 		
 		# Iterate through DENSE slices
 		for slice_num in range(len(self.dense_endo)):
 			# Extract slice-based values
 			dense_slice_endo = self.dense_endo[slice_num]
 			dense_slice_epi = self.dense_epi[slice_num]
-			dense_slice_pts = self.dense_pts[slice_num]
 			cur_slice = self.dense_slices[slice_num]
-			slice_in_cine = np.where(round(cur_slice, 1) == np.round(slice_array, 1))[0]
+			dense_slice_ind = np.argmin([abs(endo_slice_i - cur_slice) for endo_slice_i in self.endo_slices]) + 1
+			dense_slice_adjusted_z[slice_num] = np.mean(cine_epi_rot_timepoint[np.where(cine_epi_rot_timepoint[:, 3] == dense_slice_ind)[0], 0])
+			slice_in_cine = np.where(cine_epi_rot_timepoint[:, 3] == dense_slice_ind)[0]
+			#slice_in_cine = np.where(round(cur_slice, 1) == np.round(slice_array, 1))[0]
 			
 			# Get cine contours matching DENSE slice
 			cine_endo_slice = cine_endo_timepoint[slice_in_cine, :] - np.mean(cine_epi_timepoint[slice_in_cine, :], axis=0)
@@ -698,7 +741,110 @@ class MRIModel():
 			dense_aligned_pts[slice_num] = np.column_stack((dense_pts_new_x, dense_pts_new_y))
 			
 		# Set globals upon loop completion
+		self.dense_slice_shifted = dense_slice_adjusted_z
 		self.dense_aligned_displacement = scaled_strain
 		self.dense_aligned_pts = dense_aligned_pts
-			
 		return(True)
+		
+	def alignDense(self, cine_timepoint=0):
+		# Convert prolate variables to arrays
+		dense_endo_prol = np.vstack(tuple(self.dense_endo_prol))
+		dense_epi_prol = np.vstack(tuple(self.dense_epi_prol))
+		dense_pts_prol = np.vstack(tuple(self.dense_pts_prol))
+		cine_endo_prol = np.vstack(tuple(self.cine_endo_prol[0]))
+		cine_epi_prol = np.vstack(tuple(self.cine_epi_prol[0]))
+		
+		dense_epi_prol_shifted, epi_prol_shift_diff = self.__shiftProlateVals(dense_epi_prol, cine_epi_prol)
+		dense_endo_prol_shifted, _ = self.__shiftProlateVals(dense_endo_prol, shift_diff=epi_prol_shift_diff)
+		dense_pts_prol_shifted, _ = self.__shiftProlateVals(dense_pts_prol, shift_diff=epi_prol_shift_diff)
+		
+		# Interpolate dense endo and epi contours
+		dense_endo_interp_mu = sp.interpolate.griddata(cine_endo_prol[:, 1:3], cine_endo_prol[:, 0], dense_endo_prol_shifted[:, 1:3], method='linear')
+		dense_endo_interp_mu_nearest = sp.interpolate.griddata(cine_endo_prol[:, 1:3], cine_endo_prol[:, 0], dense_endo_prol_shifted[:, 1:3], method='nearest')
+		dense_endo_interp_mu[np.where(np.isnan(dense_endo_interp_mu))[0]] = dense_endo_interp_mu_nearest[np.where(np.isnan(dense_endo_interp_mu))[0]]
+		
+		dense_epi_interp_mu = sp.interpolate.griddata(cine_epi_prol[:, 1:3], cine_epi_prol[:, 0], dense_epi_prol_shifted[:, 1:3], method='linear')
+		dense_epi_interp_mu_nearest = sp.interpolate.griddata(cine_epi_prol[:, 1:3], cine_epi_prol[:, 0], dense_epi_prol_shifted[:, 1:3], method='nearest')
+		dense_epi_interp_mu[np.where(np.isnan(dense_epi_interp_mu))[0]] = dense_epi_interp_mu_nearest[np.where(np.isnan(dense_epi_interp_mu))[0]]
+		
+		# Convert interpolated & shifted contours back to cartesian coordinates.
+		dense_endo_cart = np.column_stack(tuple(mathhelper.prolate2cart(dense_endo_interp_mu, dense_endo_prol_shifted[:, 1], dense_endo_prol_shifted[:, 2], self.focus)))
+		dense_epi_cart = np.column_stack(tuple(mathhelper.prolate2cart(dense_epi_interp_mu, dense_epi_prol_shifted[:, 1], dense_epi_prol_shifted[:, 2], self.focus)))
+		dense_pts_cart = np.column_stack(tuple(mathhelper.prolate2cart(dense_pts_prol_shifted[:, 0], dense_pts_prol_shifted[:, 1], dense_pts_prol_shifted[:, 2], self.focus)))
+		
+		dense_endo_cart_old = np.column_stack(tuple(mathhelper.prolate2cart(dense_endo_prol_shifted[:, 0], dense_endo_prol_shifted[:, 1], dense_endo_prol_shifted[:, 2], self.focus)))
+		dense_epi_cart_old = np.column_stack(tuple(mathhelper.prolate2cart(dense_epi_prol_shifted[:, 0], dense_epi_prol_shifted[:, 1], dense_epi_prol_shifted[:, 2], self.focus)))
+		
+		# Convert cartesian slices into polar slices.
+		dense_endo_polar = np.transpose(mathhelper.cart2pol(dense_endo_cart[:, 1], dense_endo_cart[:, 2]))
+		dense_epi_polar = np.transpose(mathhelper.cart2pol(dense_epi_cart[:, 1], dense_epi_cart[:, 2]))
+		dense_pts_polar = np.transpose(mathhelper.cart2pol(dense_pts_cart[:, 1], dense_pts_cart[:, 2]))
+		
+		dense_endo_polar_old = np.transpose(mathhelper.cart2pol(dense_endo_cart_old[:, 1], dense_endo_cart_old[:, 2]))
+		dense_epi_polar_old = np.transpose(mathhelper.cart2pol(dense_epi_cart_old[:, 1], dense_epi_cart_old[:, 2]))
+		dense_slice_z = np.unique(np.round(dense_endo_cart_old[:, 0], 2))
+		
+		# Split polar dense contours into separate slices.
+		dense_endo_polar_old_split = [None]*dense_slice_z.size
+		dense_epi_polar_old_split = [None]*dense_slice_z.size
+		dense_pts_polar_old_split = [None]*dense_slice_z.size
+		dense_endo_polar_split = [None]*dense_slice_z.size
+		dense_epi_polar_split = [None]*dense_slice_z.size
+		
+		for slice_ind, slice_val in enumerate(dense_slice_z):
+			dense_endo_polar_old_split[slice_ind] = dense_endo_polar_old[np.where(np.round(dense_endo_cart_old[:, 0], 2) == slice_val)[0], :]
+			dense_epi_polar_old_split[slice_ind] = dense_epi_polar_old[np.where(np.round(dense_endo_cart_old[:, 0], 2) == slice_val)[0], :]
+			dense_pts_polar_old_split[slice_ind] = dense_pts_polar[np.where(np.round(dense_pts_cart[:, 0], 2) == slice_val)[0], :]
+			dense_endo_polar_split[slice_ind] = dense_endo_polar[np.where(np.round(dense_endo_cart_old[:, 0], 2) == slice_val)[0], :]
+			dense_epi_polar_split[slice_ind] = dense_epi_polar[np.where(np.round(dense_endo_cart_old[:, 0], 2) == slice_val)[0], :]
+		
+		dense_pts_polar_split = [None]*dense_slice_z.size
+		dense_pts_cart_split = [None]*dense_slice_z.size
+		# Interpolate points along the angles.
+		for slice_ind, slice_val in enumerate(dense_slice_z):
+			dense_endo_ratio = np.divide(dense_endo_polar_split[slice_ind][:, 1], dense_endo_polar_old_split[slice_ind][:, 1])
+			dense_epi_ratio = np.divide(dense_epi_polar_split[slice_ind][:, 1], dense_epi_polar_old_split[slice_ind][:, 1])
+			dense_stacked_ratios = np.vstack(((np.column_stack((dense_endo_polar_split[slice_ind][:, 0], dense_endo_ratio)), np.column_stack((dense_epi_polar_split[slice_ind][:, 0], dense_epi_ratio)))))
+			dense_rho_interp = sp.interpolate.interp1d(dense_stacked_ratios[:, 0], dense_stacked_ratios[:, 1], fill_value='extrapolate', kind='linear')
+			dense_pts_rho_ratios = dense_rho_interp(dense_pts_polar_old_split[slice_ind][:, 0])
+			dense_pts_rho = np.multiply(dense_pts_polar_old_split[slice_ind][:, 1], dense_pts_rho_ratios)
+			dense_pts_polar_split[slice_ind] = np.column_stack(([slice_val]*dense_pts_polar_old_split[slice_ind].shape[0], dense_pts_polar_old_split[slice_ind][:, 0], dense_pts_rho))
+			dense_pts_cart_temp = np.column_stack(tuple(mathhelper.pol2cart(dense_pts_polar_split[slice_ind][:, 1], dense_pts_polar_split[slice_ind][:, 2])))
+			dense_pts_cart_split[slice_ind] = np.column_stack(([slice_val]*dense_pts_polar_split[slice_ind].shape[0], dense_pts_cart_temp))
+			
+		dense_endo_cart[:, 0] = dense_endo_cart_old[:, 0]
+		dense_epi_cart[:, 0] = dense_epi_cart_old[:, 0]
+		
+		# Store values as class member variables.
+		self.dense_slice_shifted = dense_endo_cart_old[[np.where(np.round(dense_endo_cart_old[:, 0], 2) == slice_val)[0][0] for slice_val in dense_slice_z], 0]
+		self.dense_aligned_pts = dense_pts_cart_split
+		return(True)
+		
+	def __shiftProlateVals(self, adj_prol_pts, ref_prol_pts=np.empty([]), shift_diff=np.empty([0])):
+		"""Shift a set of prolate points to align with a central axis in cartesian coordinates.
+		"""
+		adj_cart_pts = np.column_stack(tuple(mathhelper.prolate2cart(adj_prol_pts[:, 0], adj_prol_pts[:, 1], adj_prol_pts[:, 2], self.focus)))
+		if (shift_diff.size == 0):
+			if ref_prol_pts.size:
+				ref_cart_pts = np.column_stack(tuple(mathhelper.prolate2cart(ref_prol_pts[:, 0], ref_prol_pts[:, 1], ref_prol_pts[:, 2], self.focus)))
+				shift_diff = np.mean(adj_cart_pts, axis=0) - np.mean(ref_cart_pts, axis=0)
+				shift_diff[0] = 0
+			else:
+				return(False)
+		adj_cart_pts = adj_cart_pts - shift_diff
+		adj_prol_pts_post = np.column_stack(tuple(mathhelper.cart2prolate(adj_cart_pts[:, 0], adj_cart_pts[:, 1], adj_cart_pts[:, 2], self.focus)))
+		return(adj_prol_pts_post, shift_diff)
+		
+	def __convertInterpScar(self, scar_pts_combined):
+		"""Converts interpolated scar trace into a plottable list of arrays, based on displayhelper.plotScarTrace.
+		"""
+		# Initialize list to store arrays for scar tracing.
+		interp_scar_trace = [np.empty([0])]*len(scar_pts_combined)
+		for scar_ind, scar_pts in enumerate(scar_pts_combined):
+			# Stack outer and inner scar arrays vertically
+			ordered_scar_pts = np.vstack((scar_pts[:, 0:3], np.flip(scar_pts[:, 3:], axis=0)))
+			# Remove nan values from the array and append the first value to the end to close the loop
+			nan_inds = np.where(np.isnan(ordered_scar_pts[:, 0]))
+			non_nan_scar = np.delete(ordered_scar_pts, nan_inds, axis=0)
+			interp_scar_trace[scar_ind] = np.vstack((non_nan_scar, non_nan_scar[0, :]))
+		return(interp_scar_trace)

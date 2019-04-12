@@ -1,6 +1,9 @@
 import numpy as np
 import math
 import matplotlib.pyplot as mplt
+from vispy import scene, visuals
+from vispy.plot import Fig
+from vispy.color import Color
 from mpl_toolkits.mplot3d import Axes3D
 from cardiachelpers import meshhelper
 from cardiachelpers import mathhelper
@@ -22,8 +25,13 @@ def segmentRender(all_data_endo, all_data_epi, apex_pt, basal_pt, septal_pts, or
 		ax (mplotlib3d axes): The axes of the contour
 	"""
 	if not ax:
-		fig = mplt.figure()
-		ax = fig.add_subplot(111, projection='3d')
+	#	fig = mplt.figure()
+	#	ax = fig.add_subplot(111, projection='3d')
+		canvas = scene.SceneCanvas(keys='interactive', show=True)
+		ax = canvas.central_widget.add_view()
+		ax.bgcolor = '#ffffff'
+		ax.camera = 'arcball'
+		ax.padding = 0
 	all_data_endo = np.array(all_data_endo).squeeze()
 	all_data_epi = np.array(all_data_epi).squeeze()
 	data_endo = stackhelper.rotateDataCoordinates(all_data_endo[:, :3], apex_pt, basal_pt, septal_pts)[0]
@@ -40,27 +48,35 @@ def segmentRender(all_data_endo, all_data_epi, apex_pt, basal_pt, septal_pts, or
 		# Get the indices that match the current bin and append then append the first value
 		endo_tracing = np.where(all_data_endo[:, 3] == bins[jz])[0]
 		endo_tracing = np.append(endo_tracing, endo_tracing[0])
-		#print(tracing)
 		# Pull x, y, z from endo and epi and plot
 		x = data_endo[endo_tracing, 2]
 		y = data_endo[endo_tracing, 1]
 		z = data_endo[endo_tracing, 0]
-		ax.plot(x, y, -z, 'y-')
+		endo_plot = np.column_stack((x, y, -z))
+		endo_markers = scene.visuals.Line(pos=endo_plot, color='yellow', connect='strip', parent=ax.scene)
+		#ax.plot(x, y, -z, 'y-')
 		# Epi plotting
 		epi_tracing = np.where(all_data_epi[:, 3] == bins[jz])[0]
 		epi_tracing = np.append(epi_tracing, epi_tracing[0])
 		x = data_epi[epi_tracing, 2]
 		y = data_epi[epi_tracing, 1]
 		z = data_epi[epi_tracing, 0]
-		ax.plot(x, y, -z, 'c-')
+		epi_plot = np.column_stack((x, y, -z))
+		epi_markers = scene.visuals.Line(pos=epi_plot, color='cyan', connect='strip', parent=ax.scene)
+		#ax.plot(x, y, -z, 'c-')
 	if landmarks:
 		# Plot the apex, basal, and septal points
 		ab = np.array([apex_transform, basal_transform])
 		si = np.array([septal_transform2, septal_transform3])
-		
-		ax.plot(ab[:, 2], ab[:, 1], -ab[:, 0], 'k-.')
-		ax.scatter(si[:, 2], si[:, 1], -si[:, 0], 'bo', s=50)
-		ax.scatter(septal_transform1[2], septal_transform1[1], -septal_transform1[0], 'ro', s=50)
+		ab_pos = np.column_stack((ab[:, 2], ab[:, 1], -ab[:, 0]))
+		si_pos = np.column_stack((si[:, 2], si[:, 1], -si[:, 0]))
+		septal_pos = np.column_stack((septal_transform1[2], septal_transform1[1], -septal_transform1[0]))
+		scene.visuals.Line(pos=ab_pos, color='black', connect='strip', parent=ax.scene)
+		scene.visuals.Markers(pos=si_pos, face_color='black', symbol='disc', parent=ax.scene)
+		scene.visuals.Markers(pos=septal_pos, face_color='red', symbol='disc', parent=ax.scene)
+		#ax.plot(ab[:, 2], ab[:, 1], -ab[:, 0], 'k-.')
+		#ax.scatter(si[:, 2], si[:, 1], -si[:, 0], 'bo', s=50)
+		#ax.scatter(septal_transform1[2], septal_transform1[1], -septal_transform1[0], 'ro', s=50)
 	
 	return(ax)
 	
@@ -75,8 +91,16 @@ def surfaceRender(nodal_mesh, focus, ax=None):
 	"""
 	# If no axes were passed, generate new set of axes
 	if not ax:
-		fig = mplt.figure()
-		ax = fig.add_subplot(111, projection='3d')
+		#fig = mplt.figure()
+		#ax = fig.add_subplot(111, projection='3d')
+		canvas = scene.SceneCanvas(keys='interactive', show=False, size=(900, 900), position=(100, 100))
+		ax = canvas.central_widget.add_view()
+		ax.bgcolor = '#ffffff'
+		ax.camera = 'arcball'
+		ax.camera.set_range(x=(-30, 30), y=(-30, 30), z=(-30, 30))
+		ax.padding = 0
+	else:
+		canvas = ax.canvas
 
 	# Sort the mesh by first 3 columns
 	nodal_mesh = nodal_mesh[nodal_mesh[:, 0].argsort()]
@@ -99,11 +123,14 @@ def surfaceRender(nodal_mesh, focus, ax=None):
 	# Convert apex node from prolate to cartesian, then plot with scatter
 	if min(nodal_nu) == 0:
 		x, y, z = mathhelper.prolate2cart(nodal_mesh[0, 0], nodal_mesh[0, 1], nodal_mesh[0, 2], focus)
-		ax.scatter(z, y, -x)
+		scene.visuals.Markers(pos=np.column_stack((z, y, -x)), face_color='black', symbol='disc', parent=ax.scene)
+		#ax.scatter(z, y, -x)
 		start_nu = 1
 	else:
 		start_nu = 0
 	# Plot circumferential element boundaries
+	line_pos_arr = np.empty([0, 3])
+	line_con_arr = np.empty([0, 2])
 	for i in range(start_nu, size_nodal_nu):
 		for j in range(int(size_nodal_phi)):
 			# Define nodal values for interpolation
@@ -123,7 +150,8 @@ def surfaceRender(nodal_mesh, focus, ax=None):
 			# Convert to cartesian
 			n0x, n0y, n0z = mathhelper.prolate2cart(nodal_mesh[ind0, 0], nodal_mesh[ind0, 1], nodal_mesh[ind0, 2], focus)
 			# Plot the node
-			ax.scatter(n0z, n0y, -n0x)
+			scene.visuals.Markers(pos=np.column_stack((n0z, n0y, -n0x)), face_color='black', symbol='disc', parent=ax.scene)
+			#ax.scatter(n0z, n0y, -n0x)
 			# Plot the arc segments
 			for k in range(2, len(e)):
 				# Determine starting point to use
@@ -146,7 +174,9 @@ def surfaceRender(nodal_mesh, focus, ax=None):
 				y = np.append(pt_y, y_here)
 				z = np.append(pt_z, z_here)
 				# Plot segments
-				ax.plot(z, y, -x, 'k-.')
+				line_con_arr = np.vstack((line_con_arr, np.array([[line_pos_arr.shape[0]+i, line_pos_arr.shape[0]+i+1] for i in range(z.shape[0]-1)])))
+				line_pos_arr = np.vstack((line_pos_arr, np.column_stack((z, y, -x))))
+				#ax.plot(z, y, -x, 'k-.')
 	# Plot longitudinal element boundaries
 	for i in range(int(size_nodal_phi)):
 		for j in range(size_nodal_nu-1):
@@ -184,16 +214,29 @@ def surfaceRender(nodal_mesh, focus, ax=None):
 				y = np.append(pt_y, y_here)
 				z = np.append(pt_z, z_here)
 				# Plot the segment
-				ax.plot(z, y, -x, 'k-.')
-				
+				line_con_arr = np.vstack((line_con_arr, np.array([[line_pos_arr.shape[0]+i, line_pos_arr.shape[0]+i+1] for i in range(z.shape[0]-1)])))
+				line_pos_arr = np.vstack((line_pos_arr, np.column_stack((z, y, -x))))
+				#ax.plot(z, y, -x, 'k-.')
+	scene.visuals.Line(pos=line_pos_arr, color='black', connect=line_con_arr, parent=ax.scene)
+	canvas.show()
 	return(ax)
 	
 def displayScarTrace(scar, origin, transform, ax=None):
 	"""Plots scar trace overlay onto a passed axis.
 	"""
 	if not ax:
-		fig = mplt.figure()
-		ax = fig.add_subplot(111, projection='3d')
+		#fig = mplt.figure()
+		#ax = fig.add_subplot(111, projection='3d')
+		canvas = scene.SceneCanvas(keys='interactive', show=False, size=(900, 900), position=(100, 100))
+		ax = canvas.central_widget.add_view()
+		ax.bgcolor = '#ffffff'
+		ax.camera = 'arcball'
+		ax.camera.set_range(x=(-30, 30), y=(-30, 30), z=(-30, 30))
+		ax.padding = 0
+	else:
+		canvas = ax.canvas
+	line_con_arr = np.empty([0, 2])
+	line_pos_arr = np.empty([0, 3])
 	for scar_slice in scar:
 		# Append the first point to the end to make a circular contour
 		cur_scar = np.append(scar_slice, np.expand_dims(scar_slice[0, :], 0), axis=0)
@@ -203,7 +246,11 @@ def displayScarTrace(scar, origin, transform, ax=None):
 		x = data_scar[:, 2]
 		y = data_scar[:, 1]
 		z = data_scar[:, 0]
-		ax.plot(x, y, -z, 'r-')
+		line_con_arr = np.vstack((line_con_arr, np.array([[line_pos_arr.shape[0]+i, line_pos_arr.shape[0]+i+1] for i in range(z.shape[0]-1)])))
+		line_pos_arr = np.vstack((line_pos_arr, np.column_stack((x, y, -z))))
+		#ax.plot(x, y, -z, 'r-')
+	scene.visuals.Line(pos=line_pos_arr, color='red', connect=line_con_arr, parent=ax.scene)
+	canvas.show()
 	return(ax)
 
 def displayDensePts(dense_pts, dense_slices, origin, transform, dense_displacement_all=False, dense_plot_quiver=0, timepoint=-1, ax=None):
@@ -211,8 +258,16 @@ def displayDensePts(dense_pts, dense_slices, origin, transform, dense_displaceme
 	"""
 	# If no axes were passed, generate axes
 	if not ax:
-		fig = mplt.figure()
-		ax = fig.add_subplot(111, projection='3d')
+		#fig = mplt.figure()
+		#ax = fig.add_subplot(111, projection='3d')
+		canvas = scene.SceneCanvas(keys='interactive', show=False, size=(900, 900), position=(100, 100))
+		ax = canvas.central_widget.add_view()
+		ax.bgcolor = '#ffffff'
+		ax.camera = 'arcball'
+		ax.camera.set_range(x=(-30, 30), y=(-30, 30), z=(-30, 30))
+		ax.padding = 0
+	else:
+		canvas = ax.canvas
 	
 	# Pull appropriate timepoint (or set to False if displacement is undesired)
 	if timepoint >= 0:
@@ -231,10 +286,10 @@ def displayDensePts(dense_pts, dense_slices, origin, transform, dense_displaceme
 	for i in range(len(dense_slices)):
 		cur_slice = dense_slices[i]
 		cur_dense_pts = np.column_stack((dense_pts[i], [cur_slice - origin[2]]*dense_pts[i].shape[0]))
-		data_dense = np.dot(cur_dense_pts, np.transpose(transform))
-		x = data_dense[:, 2]
-		y = data_dense[:, 1]
-		z = data_dense[:, 0]
+		#data_dense = np.dot(cur_dense_pts, np.transpose(transform))
+		x = cur_dense_pts[:, 0]
+		y = cur_dense_pts[:, 1]
+		z = cur_dense_pts[:, 2]
 		ax.scatter(x, y, -z, ',')
 		
 		if dense_displacement:
@@ -246,12 +301,21 @@ def displayDensePts(dense_pts, dense_slices, origin, transform, dense_displaceme
 def nodeRender(nodes, ax=None):
 	"""Display the nodes passed in as a 3D scatter plot."""
 	if not ax:
-		fig = mplt.figure()
-		ax = fig.add_subplot(111, projection='3d')
+		#fig = mplt.figure()
+		#ax = fig.add_subplot(111, projection='3d')
+		canvas = scene.SceneCanvas(keys='interactive', show=False, size=(900, 900), position=(100, 100))
+		ax = canvas.central_widget.add_view()
+		ax.bgcolor = '#ffffff'
+		ax.camera = 'arcball'
+		ax.camera.set_range(x=(-30, 30), y=(-30, 30), z=(-30, 30))
+		ax.padding = 0
+	else:
+		canvas = ax.canvas
 	x = nodes[:, 2]
 	y = nodes[:, 1]
 	z = nodes[:, 0]
-	ax.scatter(x, y, -z)
+	#ax.scatter(x, y, -z)
+	scene.visuals.Markers(pos=np.column_stack((x, y, -z)), face_color='yellow', parent=ax.scene)
 	return(ax)
 	
 def displayMeshPostview(file_name, executable_name):
@@ -262,12 +326,37 @@ def displayMeshPostview(file_name, executable_name):
 	p = subprocess.Popen([executable_name, file_name])
 	return(p)
 	
-def plotListData(input_list, title_list, ax=None):
+def plotListData(input_list, title_list=False, ax=None, color='k'):
+	if not ax:
+		#fig = mplt.figure()
+		#ax = fig.add_subplot(111)
+		fig = Fig()
+		ax = fig[0, 0]
+	x_vals = list(range(len(input_list)))
+	ax.plot(np.column_stack((x_vals, input_list)), color=color)
+	#if title_list:
+	#	ax.legend(title_list)
+	return(ax)
+	
+def plot3d(input_arr, ax=None, type='plot'):
 	if not ax:
 		fig = mplt.figure()
-		ax = fig.add_subplot(111)
-	for input_vals in input_list:
-		x_vals = list(range(len(input_vals)))
-		ax.plot(x_vals, input_vals)
-	ax.legend(title_list)
+		ax=fig.add_subplot(111, projection='3d')
+	if type == 'scatter':
+		ax.scatter(input_arr[:, 0], input_arr[:, 1], input_arr[:, 2])
+	else:
+		ax.plot(input_arr[:, 0], input_arr[:, 1], input_arr[:, 2])
 	return(ax)
+	
+def visPlot3d(input_arr, view=None, type='line'):
+	if not view:
+		canvas = scene.SceneCanvas(keys='interactive', show=True)
+		view = canvas.central_widget.add_view()
+		view.bgcolor = '#ffffff'
+		view.camera = 'arcball'
+		view.padding = 0
+	if type == 'markers':
+		markers = scene.visuals.Markers(pos=input_arr, face_color='black', symbol='disc', parent=view.scene)
+	elif type == 'line':
+		markers = scene.visuals.Line(pos=input_arr, color='black', connect='strip', parent=view.scene)
+	return(view)
