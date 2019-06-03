@@ -1,7 +1,7 @@
 LV Data Map
 ================
 
-These scripts provide a method to fuse information from multipe imaging sequences to build a patient-specific finite-element (FE) model of the left ventricle (LV).
+These scripts provide a method to fuse information from multipe imaging sequences to build a patient-specific finite-element (FE) model of the left ventricle (LV). Description of this work was published in ["Open-Source Routines for Building Personalized Left Ventricular Models from Cardiac MRI Data".](http://biomechanical.asmedigitalcollection.asme.org/article.aspx?articleid=2735311)
 
 ## Introduction
 This project provides a generic pipeline for mapping imaging data onto a LV FE mesh using a prolate, spheroidal coordinate system. Specifically, there are two scripts that follow the same pipeline to project scar and mechanical activation information onto a FE mesh. 
